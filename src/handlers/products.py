@@ -7,6 +7,8 @@ from console import console, render_error
 from db import get_conn
 from prompt_toolkit import prompt
 from prompt_toolkit.completion import WordCompleter
+from prompt_toolkit.shortcuts import choice
+from prompt_toolkit.formatted_text import HTML
 from validators import ChoiceValidator, NonEmptyValidator, YesNoValidator
 from psycopg.rows import class_row
 
@@ -114,7 +116,7 @@ def add_product() -> None:
     """
     Добавляет новый продукт в базу данных.
     Запрашивает у пользователя: SKU, название, цену и категорию.
-    Используйте prompt с валидаторами для ввода данных.
+    Использует choice() для выбора категории.
     """
     conn = get_conn()
     
@@ -126,30 +128,25 @@ def add_product() -> None:
     if not categories:
         render_error("Нет доступных категорий. Сначала создайте категорию.")
         return
-    
-    category_choices = [f"{cat_id}. {cat_name}" for cat_id, cat_name in categories]
-    category_choice = prompt(
-        "Выберите категорию: ",
-        completer=WordCompleter(category_choices),
-        validator=ChoiceValidator(category_choices)
-    ).strip()
-    
-    category_id = int(category_choice.split(".")[0])
+
+    category_id = choice(
+        message=HTML("<b>Выберите категорию</b>"),
+        options=categories,
+        bottom_toolbar="Используйте стрелки ↑/↓ для навигации, Enter для подтверждения:"
+    )
     
     conn.execute(
         "INSERT INTO catalog.products (sku, name, price, category_id) VALUES (%s, %s, %s, %s)",
         (sku, name, price, category_id),
     )
     
-    console.print(f"[green]Продукт {name} c ценой {price} добавлен[/green]")
+    console.print(f"[green]Продукт {name} с ценой {price} добавлен")
 
 
 @command("edit product", "редактировать товар", CATEGORY_PRODUCTS)
 def edit_product(_id: str) -> None:
     """
     Редактирует существующий продукт.
-    Сначала проверяет существование продукта по ID.
-    Предлагает текущие значения как default при вводе новых данных.
     """
     conn = get_conn()
     
@@ -169,38 +166,21 @@ def edit_product(_id: str) -> None:
     
     categories = _get_categories()
     if not categories:
-        render_error("Нет доступных категорий.")
+        render_error("Нет доступных категорий. Сначала создайте категорию.")
         return
     
-    category_choices = [f"{cat_id}. {cat_name}" for cat_id, cat_name in categories]
-    
-    current_category = next(
-        (f"{cat_id}. {cat_name}" for cat_id, cat_name in categories if cat_id == product.category_id),
-        None
+    category_id = choice(
+        message=HTML("<b>Выберите категорию</b>"),
+        options=categories,
+        bottom_toolbar="Используйте стрелки ↑/↓ для навигации, Enter для подтверждения:"
     )
-    
-    if current_category:
-        default_text = f" [{current_category}]"
-    else:
-        default_text = ""
-    
-    category_choice = prompt(
-        f"Выберите категорию{default_text}: ",
-        completer=WordCompleter(category_choices),
-        validator=ChoiceValidator(category_choices)
-    ).strip()
-    
-    if category_choice:
-        category_id = int(category_choice.split(".")[0])
-    else:
-        category_id = product.category_id
     
     conn.execute(
         "UPDATE catalog.products SET sku = %s, name = %s, price = %s, category_id = %s WHERE id = %s",
         (sku, name, price, category_id, _id)
     )
     
-    console.print(f"[green]Продукт с ID {_id} обновлен[/green]")
+    console.print(f"[green]Продукт с ID {_id} успешно обновлен[/green]")
 
 
 @command("delete product", "удалить товар", CATEGORY_PRODUCTS)

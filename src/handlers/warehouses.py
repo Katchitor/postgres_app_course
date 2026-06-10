@@ -109,26 +109,35 @@ def show_warehouse(_id: str) -> None:
 @command("add warehouse", "добавить склад (интерактивно)", CATEGORY_WAREHOUSES)
 def add_warehouse() -> None:
     conn = get_conn()
-    
+
     with conn.cursor() as cur:
-        cur.execute("SELECT COUNT(*) FROM catalog.warehouses")
-        is_first = cur.fetchone()[0] == 0
+        cur.execute("SELECT EXISTS(SELECT 1 FROM catalog.warehouses WHERE is_central = true)")
+        has_central = cur.fetchone()[0]
     
     city = prompt("Город: ", validator=city_validator, completer=city_completer).strip()
     address = prompt("Адрес: ", validator=NonEmptyValidator()).strip()
     label = prompt("Метка (необязательно): ").strip() or None
     
+    is_central = False
+    if not has_central:
+        is_central = True
+        console.print("[yellow]Нет центрального склада. Этот склад станет центральным[/yellow]")
+    else:
+        answer = prompt("Сделать этот склад центральным? (y/n): ", validator=YesNoValidator()).strip().lower()
+        make_central = YesNoValidator.is_yes(answer)
+        if make_central:
+            with conn.cursor() as cur:
+                cur.execute("UPDATE catalog.warehouses SET is_central = false WHERE is_central = true")
+            is_central = True
+    
     conn.execute(
         "INSERT INTO catalog.warehouses (city, address, label, is_central) VALUES (%s, %s, %s, %s)",
-        (city, address, label, is_first),
+        (city, address, label, is_central),
     )
     
-    if is_first:
-        console.print(f"[green]Склад в городе {city} добавлен и установлен как центральный[/green]")
-    elif label:
-        console.print(f"[green]Склад в городе {city} ({label}) добавлен[/green]")
-    else:
-        console.print(f"[green]Склад в городе {city} добавлен[/green]")
+    status = "Центральный " if is_central else ""
+    label = f"({label})" if label else ""
+    console.print(f"[green] Склад в городе {city}{label} добавлен как {status}склад[/green]")
 
 
 @command("edit warehouse", "редактировать склад", CATEGORY_WAREHOUSES)
@@ -155,14 +164,15 @@ def edit_warehouse(_id: str) -> None:
         prompt("Метка (необязательно): ", default=warehouse.label or "").strip() or None
     )
     
-    answer = prompt("Сделать этот склад центральным? (y/n, д/н): ", validator=YesNoValidator())
-    make_central = YesNoValidator.is_yes(answer)
+    if not warehouse.is_central:
+        answer = prompt("Сделать этот склад центральным? (y/n, д/н): ", validator=YesNoValidator())
+        make_central = YesNoValidator.is_yes(answer)
     
-    if make_central:
-        conn.execute("UPDATE catalog.warehouses SET is_central = false")
-        is_central = True
-    else:
-        is_central = warehouse.is_central
+        if make_central:
+            conn.execute("UPDATE catalog.warehouses SET is_central = false WHERE is_central = true")
+            is_central = True
+        else:
+            is_central = warehouse.is_central
     
     conn.execute(
         """UPDATE catalog.warehouses SET city = %s, address = %s, label = %s, is_central = %s
@@ -170,10 +180,9 @@ def edit_warehouse(_id: str) -> None:
         (city, address, label, is_central, _id),
     )
     
-    if label:
-        console.print(f"[green]Склад в городе {city} ({label}) обновлен[/green]")
-    else:
-        console.print(f"[green]Склад в городе {city} обновлен[/green]")
+    status = "Центральный " if is_central else ""
+    label = f"({label})" if label else ""
+    console.print(f"[green]Склад в городе {city}{label} обновлен как {status}склад[/green]")
 
 
 @command("delete warehouse", "удалить склад", CATEGORY_WAREHOUSES)
@@ -192,19 +201,12 @@ def delete_warehouse(_id: str) -> None:
     answer = prompt("Вы уверены? (y/n, д/н): ", validator=YesNoValidator())
 
     if YesNoValidator.is_yes(answer):
-        conn.execute("DELETE FROM catalog.warehouses WHERE id = %s", (_id,))
-        
         if warehouse.is_central:
-            with conn.cursor() as cur:
-                cur.execute("SELECT id FROM catalog.warehouses LIMIT 1")
-                first = cur.fetchone()
-                if first:
-                    conn.execute("UPDATE catalog.warehouses SET is_central = true WHERE id = %s", (first[0],))
-                    console.print("[yellow]Новый центральный склад автоматически назначен[/yellow]")
-        
-        if warehouse.label:
-            console.print(
-                f"[green]Склад в городе {warehouse.city} ({warehouse.label}) удален[/green]"
-            )
+            console.print("[red]Центральный склад удалить нельзя![/red]")
+            return
         else:
-            console.print(f"[green]Склад в городе {warehouse.city} удален[/green]")
+            conn.execute("DELETE FROM catalog.warehouses WHERE id = %s", (_id,))
+            if warehouse.label:
+                console.print( f"[green]Склад в городе {warehouse.city} ({warehouse.label}) удален[/green]")
+            else:
+                console.print(f"[green]Склад в городе {warehouse.city} удален[/green]")
