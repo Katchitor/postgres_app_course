@@ -6,10 +6,9 @@ from commands import command, CATEGORY_PRODUCTS
 from console import console, render_error
 from db import get_conn
 from prompt_toolkit import prompt
-from prompt_toolkit.completion import WordCompleter
 from prompt_toolkit.shortcuts import choice
 from prompt_toolkit.formatted_text import HTML
-from validators import ChoiceValidator, NonEmptyValidator, YesNoValidator
+from validators import NonEmptyValidator, YesNoValidator
 from psycopg.rows import class_row
 
 @dataclass
