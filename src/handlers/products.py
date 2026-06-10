@@ -140,7 +140,7 @@ def add_product() -> None:
         (sku, name, price, category_id),
     )
     
-    console.print(f"[green]Продукт {name} с ценой {price} добавлен")
+    console.print(f"[green]Продукт {name} с ценой {price} добавлен[/green]")
 
 
 @command("edit product", "редактировать товар", CATEGORY_PRODUCTS)
