@@ -1,0 +1,33 @@
+CREATE DATABASE inventorydb;
+
+CREATE ROLE app_user WITH LOGIN PASSWORD 'pass';
+
+GRANT CREATE ON DATABASE inventorydb TO app_user;
+
+\c inventorydb app_user;
+
+CREATE SCHEMA catalog AUTHORIZATION app_user;
+
+-- Таблица категорий
+CREATE TABLE catalog.product_categories (
+    id SERIAL PRIMARY KEY,
+    name VARCHAR(100) NOT NULL UNIQUE
+);
+
+-- Таблица товаров
+CREATE TABLE catalog.products (
+    id SERIAL PRIMARY KEY,
+    sku VARCHAR(30) NOT NULL UNIQUE,
+    name VARCHAR(200) NOT NULL,
+    price DECIMAL(10, 2) NOT NULL,
+    category_id INTEGER NOT NULL
+);
+
+-- Таблица складов
+CREATE TABLE catalog.warehouses (
+    id SERIAL PRIMARY KEY,
+    city VARCHAR(100) NOT NULL,
+    address VARCHAR(255) NOT NULL,
+    label VARCHAR(100),
+    is_central BOOLEAN NOT NULL DEFAULT FALSE
+);

@@ -1,0 +1,7 @@
+prompt-toolkit==3.0.52
+psycopg[binary]==3.3.3
+rich==14.3.3
+black==26.3.1
+mypy==1.19.1
+pylint==4.0.5
+alembic==1.18.4
