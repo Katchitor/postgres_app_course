@@ -1,11 +1,12 @@
--- Удаление внешнего ключа
-ALTER TABLE catalog.products DROP CONSTRAINT IF EXISTS fk_products_category_id;
+-- Down миграция для catalog и sales схем
 
--- Удаление таблиц
+-- Удаляем таблицы в обратном порядке (сначала дочерние, потом родительские)
+DROP TABLE IF EXISTS sales.order_items CASCADE;
+DROP TABLE IF EXISTS sales.orders CASCADE;
 DROP TABLE IF EXISTS catalog.products CASCADE;
-DROP TABLE IF EXISTS catalog.warehouses CASCADE;
 DROP TABLE IF EXISTS catalog.product_categories CASCADE;
+DROP TABLE IF EXISTS catalog.warehouses CASCADE;
 
--- Удаление схемы
-DROP SCHEMA IF EXISTS catalog CASCADE;
+-- Удаляем схемы
 DROP SCHEMA IF EXISTS sales CASCADE;
+DROP SCHEMA IF EXISTS catalog CASCADE;
