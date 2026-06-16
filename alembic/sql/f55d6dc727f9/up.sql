@@ -39,11 +39,11 @@ CREATE TABLE IF NOT EXISTS sales.orders (
 );
 
 CREATE TABLE IF NOT EXISTS sales.order_items (
-    id SERIAL PRIMARY KEY,
     order_id INTEGER NOT NULL,
     product_id INTEGER NOT NULL,
     quantity INTEGER NOT NULL CHECK (quantity > 0),
     price DECIMAL(10, 2) NOT NULL CHECK (price >= 0),
+    CONSTRAINT pk_order_items PRIMARY KEY (order_id, product_id),
     CONSTRAINT fk_order_items_order_id FOREIGN KEY (order_id) REFERENCES sales.orders(id) ON DELETE CASCADE,
     CONSTRAINT fk_order_items_product_id FOREIGN KEY (product_id) REFERENCES catalog.products(id)
 );
