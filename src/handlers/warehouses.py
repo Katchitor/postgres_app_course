@@ -202,7 +202,7 @@ def delete_warehouse(_id: str) -> None:
 
     if YesNoValidator.is_yes(answer):
         if warehouse.is_central:
-            console.print("[red]Центральный склад удалить нельзя![/red]")
+            render_error("Центральный склад удалить нельзя!")
             return
         else:
             conn.execute("DELETE FROM catalog.warehouses WHERE id = %s", (_id,))
