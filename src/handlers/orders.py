@@ -45,9 +45,10 @@ def _get_available_products(order_id: int) -> list[tuple[int, str]]:
         cur.execute("""
             SELECT p.id, p.name 
             FROM catalog.products p
-            WHERE NOT EXISTS (
-                SELECT 1 FROM sales.order_items oi 
-                WHERE oi.order_id = %s AND oi.product_id = p.id
+            WHERE p.id NOT IN (
+                SELECT oi.product_id 
+                FROM sales.order_items oi 
+                WHERE oi.order_id = %s
             )
             ORDER BY p.id
         """, (order_id,))
