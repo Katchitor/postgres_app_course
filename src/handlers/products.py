@@ -10,6 +10,7 @@ from prompt_toolkit.shortcuts import choice
 from prompt_toolkit.formatted_text import HTML
 from validators import NonEmptyValidator, YesNoValidator
 from psycopg.rows import class_row
+from auth import ROLE_CATALOG_MANAGER, ROLE_APP_USER
 
 @dataclass
 class Product:
@@ -60,7 +61,7 @@ def _render_product(product: Product):  # pylint: disable=unused-argument
     console.print(panel)
 
 
-@command("list products", "список всех товаров", CATEGORY_PRODUCTS)
+@command("list products", "список всех товаров", CATEGORY_PRODUCTS, [ROLE_CATALOG_MANAGER, ROLE_APP_USER])
 def list_products() -> None:
     """
     Выводит список всех продуктов из таблицы catalog.products.
@@ -91,7 +92,7 @@ def list_products() -> None:
     console.print(table)
 
 
-@command("show product", "информация о товаре", CATEGORY_PRODUCTS)
+@command("show product", "информация о товаре", CATEGORY_PRODUCTS, [ROLE_CATALOG_MANAGER, ROLE_APP_USER])
 def show_product(_id: str) -> None:
     """
     Показывает детальную информацию о продукте по его ID.
@@ -110,7 +111,7 @@ def show_product(_id: str) -> None:
     _render_product(product)
 
 
-@command("add product", "добавить товар (интерактивно)", CATEGORY_PRODUCTS)
+@command("add product", "добавить товар (интерактивно)", CATEGORY_PRODUCTS, [ROLE_CATALOG_MANAGER, ROLE_APP_USER])
 def add_product() -> None:
     """
     Добавляет новый продукт в базу данных.
@@ -142,7 +143,7 @@ def add_product() -> None:
     console.print(f"[green]Продукт {name} с ценой {price} добавлен[/green]")
 
 
-@command("edit product", "редактировать товар", CATEGORY_PRODUCTS)
+@command("edit product", "редактировать товар", CATEGORY_PRODUCTS, [ROLE_CATALOG_MANAGER, ROLE_APP_USER])
 def edit_product(_id: str) -> None:
     """
     Редактирует существующий продукт.
@@ -182,7 +183,7 @@ def edit_product(_id: str) -> None:
     console.print(f"[green]Продукт с ID {_id} успешно обновлен[/green]")
 
 
-@command("delete product", "удалить товар", CATEGORY_PRODUCTS)
+@command("delete product", "удалить товар", CATEGORY_PRODUCTS, [ROLE_CATALOG_MANAGER, ROLE_APP_USER])
 def delete_product(_id: str) -> None:
     """
     Удаляет продукт из базы данных.

@@ -10,7 +10,7 @@ from prompt_toolkit.shortcuts import choice
 from prompt_toolkit.formatted_text import HTML
 from validators import NonEmptyValidator, YesNoValidator
 from psycopg.rows import class_row
-
+from auth import ROLE_SALES_MANAGER, ROLE_APP_USER
 
 @dataclass
 class Order:
@@ -184,7 +184,7 @@ def _add_products_interactively(order_id: int, conn) -> None:
 
 # ============ COMMANDS ============
 
-@command("list orders", "список всех заказов", CATEGORY_SALES)
+@command("list orders", "список всех заказов", CATEGORY_SALES, [ROLE_SALES_MANAGER, ROLE_APP_USER])
 def list_orders() -> None:
     conn = get_conn()
     table = Table(title="Заказы")
@@ -207,7 +207,7 @@ def list_orders() -> None:
     console.print(table)
 
 
-@command("show order", "информация о заказе", CATEGORY_SALES)
+@command("show order", "информация о заказе", CATEGORY_SALES, [ROLE_SALES_MANAGER, ROLE_APP_USER])
 def show_order(order_id: str) -> None:
     order = _get_order(order_id)
     if not order:
@@ -217,7 +217,7 @@ def show_order(order_id: str) -> None:
     _render_items(order.id)
 
 
-@command("add order", "создать заказ", CATEGORY_SALES)
+@command("add order", "создать заказ", CATEGORY_SALES, [ROLE_SALES_MANAGER, ROLE_APP_USER])
 def add_order() -> None:
     conn = get_conn()
     
@@ -245,7 +245,7 @@ def add_order() -> None:
     console.print(f"[green]Заказ #{order_id} завершен, сумма {total:.2f} ₽[/green]")
 
 
-@command("edit order", "изменить склад", CATEGORY_SALES)
+@command("edit order", "изменить склад", CATEGORY_SALES, [ROLE_SALES_MANAGER, ROLE_APP_USER])
 def edit_order(order_id: str) -> None:
     order = _check_order(order_id, ["unpublished"])
     if not order:
@@ -271,7 +271,7 @@ def edit_order(order_id: str) -> None:
     console.print(f"[green]Склад изменен на {_get_warehouse_name(new_warehouse)}[/green]")
 
 
-@command("delete order", "удалить заказ", CATEGORY_SALES)
+@command("delete order", "удалить заказ", CATEGORY_SALES, [ROLE_SALES_MANAGER, ROLE_APP_USER])
 def delete_order(order_id: str) -> None:
     order = _check_order(order_id, ["unpublished"])
     if not order:
@@ -286,7 +286,7 @@ def delete_order(order_id: str) -> None:
         console.print(f"[green]Заказ #{order_id} удален[/green]")
 
 
-@command("publish order", "опубликовать заказ", CATEGORY_SALES)
+@command("publish order", "опубликовать заказ", CATEGORY_SALES, [ROLE_SALES_MANAGER, ROLE_APP_USER])
 def publish_order(order_id: str) -> None:
     order = _check_order(order_id, ["unpublished"])
     if not order:
@@ -306,7 +306,7 @@ def publish_order(order_id: str) -> None:
         console.print(f"[green]Заказ #{order_id} опубликован![/green]")
 
 
-@command("add order_item", "добавить товар", CATEGORY_SALES)
+@command("add order_item", "добавить товар", CATEGORY_SALES, [ROLE_SALES_MANAGER, ROLE_APP_USER])
 def add_order_item(order_id: str) -> None:
     order = _check_order(order_id, ["unpublished"])
     if not order:
@@ -339,7 +339,7 @@ def add_order_item(order_id: str) -> None:
     console.print(f"[green]Товар добавлен! Сумма заказа: {total:.2f} ₽[/green]")
 
 
-@command("edit order_item", "редактировать товар", CATEGORY_SALES)
+@command("edit order_item", "редактировать товар", CATEGORY_SALES, [ROLE_SALES_MANAGER, ROLE_APP_USER])
 def edit_order_item(order_id: str) -> None:
     order = _check_order(order_id, ["unpublished"])
     if not order:
@@ -371,7 +371,7 @@ def edit_order_item(order_id: str) -> None:
     console.print(f"[green]Товар обновлен! Сумма заказа: {total:.2f} ₽[/green]")
 
 
-@command("delete order_item", "удалить товар", CATEGORY_SALES)
+@command("delete order_item", "удалить товар", CATEGORY_SALES, [ROLE_SALES_MANAGER, ROLE_APP_USER])
 def delete_order_item(order_id: str) -> None:
     order = _check_order(order_id, ["unpublished"])
     if not order:

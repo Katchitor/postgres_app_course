@@ -7,7 +7,7 @@ from db import get_conn
 from prompt_toolkit import prompt
 from validators import NonEmptyValidator, YesNoValidator
 from psycopg.rows import class_row
-
+from auth import ROLE_CATALOG_MANAGER, ROLE_APP_USER
 
 @dataclass
 class Category:
@@ -34,7 +34,7 @@ def _render_category(category: Category):
     console.print(panel)
 
 
-@command("list product_categories", "список категорий товаров", CATEGORY_PRODUCTS)
+@command("list product_categories", "список категорий товаров", CATEGORY_PRODUCTS, [ROLE_CATALOG_MANAGER, ROLE_APP_USER])
 def list_categories() -> None:
     """Выводит список всех категорий"""
     conn = get_conn()
@@ -57,7 +57,7 @@ def list_categories() -> None:
     console.print(table)
 
 
-@command("show product_category", "информация о категории", CATEGORY_PRODUCTS)
+@command("show product_category", "информация о категории", CATEGORY_PRODUCTS, [ROLE_CATALOG_MANAGER, ROLE_APP_USER])
 def show_category(_id: str) -> None:
     """Показывает детальную информацию о категории по ID"""
     conn = get_conn()
@@ -72,7 +72,7 @@ def show_category(_id: str) -> None:
     _render_category(category)
 
 
-@command("add product_category", "добавить категорию", CATEGORY_PRODUCTS)
+@command("add product_category", "добавить категорию", CATEGORY_PRODUCTS, [ROLE_CATALOG_MANAGER, ROLE_APP_USER])
 def add_category() -> None:
     """Добавляет новую категорию"""
     conn = get_conn()
@@ -89,7 +89,7 @@ def add_category() -> None:
     console.print(f"[green]Категория '{name}' добавлена[/green]")
 
 
-@command("edit product_category", "редактировать категорию", CATEGORY_PRODUCTS)
+@command("edit product_category", "редактировать категорию", CATEGORY_PRODUCTS, [ROLE_CATALOG_MANAGER, ROLE_APP_USER])
 def edit_category(_id: str) -> None:
     """Редактирует существующую категорию"""
     conn = get_conn()
@@ -119,7 +119,7 @@ def edit_category(_id: str) -> None:
     console.print(f"[green]Категория обновлена[/green]")
 
 
-@command("delete product_category", "удалить категорию", CATEGORY_PRODUCTS)
+@command("delete product_category", "удалить категорию", CATEGORY_PRODUCTS, [ROLE_CATALOG_MANAGER, ROLE_APP_USER])
 def delete_category(_id: str) -> None:
     """Удаляет категорию"""
     conn = get_conn()
