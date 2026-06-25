@@ -5,12 +5,16 @@ from users import User, find_user_by_login_and_pass
 
 ROLE_CATALOG_MANAGER: Final[str] = "catalog_manager"
 ROLE_SALES_MANAGER: Final[str] = "sales_manager"
+ROLE_INVENTORY_MANAGER: Final[str] = "inventory_manager"
+ROLE_WORKER: Final[str] = "worker"
 ROLE_APP_USER: Final[str] = "app_user"
 
 ALL_ROLES: Final[Sequence[str]] = (
     ROLE_SALES_MANAGER,
     ROLE_CATALOG_MANAGER,
-    ROLE_APP_USER,
+    ROLE_INVENTORY_MANAGER,
+    ROLE_WORKER,
+    ROLE_APP_USER
 )
 
 _USER: User | None = None
