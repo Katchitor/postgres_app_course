@@ -49,7 +49,7 @@ CREATE SCHEMA IF NOT EXISTS inventory;
 CREATE TABLE IF NOT EXISTS inventory.routes (
     from_city_id INTEGER NOT NULL,
     to_city_id INTEGER NOT NULL,
-    duration_days INTEGER NOT NULL,
+    duration INTERVAL NOT NULL,
     min_amount NUMERIC(10, 2) NOT NULL,
     PRIMARY KEY (from_city_id, to_city_id),
     FOREIGN KEY (from_city_id) REFERENCES catalog.cities(id) ON DELETE CASCADE,
@@ -59,22 +59,20 @@ CREATE TABLE IF NOT EXISTS inventory.routes (
 -- ============ ТАБЛИЦА STOCK ============
 CREATE SEQUENCE IF NOT EXISTS inventory.stock_id_seq;
 
-CREATE TABLE IF NOT EXISTS inventory.stock (
-    id INTEGER PRIMARY KEY DEFAULT nextval('inventory.stock_id_seq'),
+CREATE TABLE inventory.stock (
     warehouse_id INTEGER NOT NULL,
     product_id INTEGER NOT NULL,
     quantity INTEGER NOT NULL DEFAULT 0,
-    reserved_quantity INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (warehouse_id, product_id),
     FOREIGN KEY (warehouse_id) REFERENCES catalog.warehouses(id) ON DELETE CASCADE,
-    FOREIGN KEY (product_id) REFERENCES catalog.products(id) ON DELETE CASCADE,
-    CONSTRAINT uq_stock_warehouse_product UNIQUE (warehouse_id, product_id)
+    FOREIGN KEY (product_id) REFERENCES catalog.products(id) ON DELETE CASCADE
 );
 
 -- ============ ТАБЛИЦА RESERVES ============
 CREATE SEQUENCE IF NOT EXISTS inventory.reserves_id_seq;
 
 CREATE TABLE IF NOT EXISTS inventory.reserves (
-    id INTEGER PRIMARY KEY DEFAULT nextval('inventory.reserves_id_seq'),
+    id SERIAL PRIMARY KEY,
     order_id INTEGER,
     product_id INTEGER NOT NULL,
     warehouse_id INTEGER NOT NULL,
@@ -89,8 +87,7 @@ CREATE TABLE IF NOT EXISTS inventory.reserves (
 CREATE SEQUENCE IF NOT EXISTS inventory.deliveries_id_seq;
 
 CREATE TABLE IF NOT EXISTS inventory.deliveries (
-    id INTEGER PRIMARY KEY DEFAULT nextval('inventory.deliveries_id_seq'),
-    order_id INTEGER NOT NULL,
+    order_id INTEGER PRIMARY KEY,
     status VARCHAR(50) NOT NULL DEFAULT 'planned',
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     shipped_at TIMESTAMP,
@@ -102,12 +99,12 @@ CREATE TABLE IF NOT EXISTS inventory.deliveries (
 CREATE SEQUENCE IF NOT EXISTS inventory.delivery_items_id_seq;
 
 CREATE TABLE IF NOT EXISTS inventory.delivery_items (
-    id INTEGER PRIMARY KEY DEFAULT nextval('inventory.delivery_items_id_seq'),
-    delivery_id INTEGER NOT NULL,
+    id SERIAL PRIMARY KEY,
+    order_id INTEGER NOT NULL,
     product_id INTEGER NOT NULL,
     quantity INTEGER NOT NULL,
     status VARCHAR(50) NOT NULL DEFAULT 'planned',
-    FOREIGN KEY (delivery_id) REFERENCES inventory.deliveries(id) ON DELETE CASCADE,
+    FOREIGN KEY (order_id) REFERENCES inventory.deliveries(order_id) ON DELETE CASCADE,
     FOREIGN KEY (product_id) REFERENCES catalog.products(id) ON DELETE CASCADE,
     CONSTRAINT chk_delivery_items_status CHECK (status IN ('planned', 'shipped'))
 );
@@ -116,11 +113,10 @@ CREATE TABLE IF NOT EXISTS inventory.delivery_items (
 CREATE SEQUENCE IF NOT EXISTS inventory.transfers_id_seq;
 
 CREATE TABLE IF NOT EXISTS inventory.transfers (
-    id INTEGER PRIMARY KEY DEFAULT nextval('inventory.transfers_id_seq'),
+    id SERIAL PRIMARY KEY,
     from_warehouse_id INTEGER NOT NULL,
     to_warehouse_id INTEGER NOT NULL,
     status VARCHAR(50) NOT NULL DEFAULT 'planned',
-    total_amount NUMERIC(10, 2) NOT NULL DEFAULT 0,
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     started_at TIMESTAMP,
     arriving_at TIMESTAMP,
@@ -134,7 +130,7 @@ CREATE TABLE IF NOT EXISTS inventory.transfers (
 CREATE SEQUENCE IF NOT EXISTS inventory.transfer_items_id_seq;
 
 CREATE TABLE IF NOT EXISTS inventory.transfer_items (
-    id INTEGER PRIMARY KEY DEFAULT nextval('inventory.transfer_items_id_seq'),
+    id SERIAL PRIMARY KEY,
     transfer_id INTEGER NOT NULL,
     product_id INTEGER NOT NULL,
     quantity INTEGER NOT NULL,
@@ -163,11 +159,6 @@ ALTER DEFAULT PRIVILEGES IN SCHEMA sales GRANT SELECT ON TABLES TO inventory_man
 -- Обновление ТОЛЬКО статуса заказов
 GRANT UPDATE (status) ON sales.orders TO inventory_manager;
 
--- Чтение catalog
-GRANT USAGE ON SCHEMA catalog TO inventory_manager;
-GRANT SELECT ON ALL TABLES IN SCHEMA catalog TO inventory_manager;
-ALTER DEFAULT PRIVILEGES IN SCHEMA catalog GRANT SELECT ON TABLES TO inventory_manager;
-
 -- ============ ПРАВА ДЛЯ WORKER ============
 -- Доступ к схеме inventory
 GRANT USAGE ON SCHEMA inventory TO worker;
@@ -194,8 +185,3 @@ ALTER DEFAULT PRIVILEGES IN SCHEMA inventory GRANT SELECT ON TABLES TO worker;
 -- Последовательности для worker
 GRANT USAGE ON ALL SEQUENCES IN SCHEMA inventory TO worker;
 ALTER DEFAULT PRIVILEGES IN SCHEMA inventory GRANT USAGE ON SEQUENCES TO worker;
-
--- Чтение catalog (только SELECT)
-GRANT USAGE ON SCHEMA catalog TO worker;
-GRANT SELECT ON ALL TABLES IN SCHEMA catalog TO worker;
-ALTER DEFAULT PRIVILEGES IN SCHEMA catalog GRANT SELECT ON TABLES TO worker;

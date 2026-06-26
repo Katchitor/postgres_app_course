@@ -81,13 +81,13 @@ def list_warehouses() -> None:
             JOIN catalog.cities c ON c.id = w.city_id
             ORDER BY w.id
         """)
-        for row in cur.fetchall():
+        for w_id, address, label, is_central, city_name in cur.fetchall():
             table.add_row(
-                str(row[0]),
-                row[4],  # city_name
-                row[1],  # address
-                row[2] or "",  # label
-                "Да" if row[3] else "Нет"  # is_central
+                str(w_id),
+                city_name,
+                address,
+                label or "",
+                "Да" if is_central else "Нет"
             )
     console.print(table)
 
@@ -108,13 +108,14 @@ def show_warehouse(_id: str) -> None:
         render_error(f"Склад с ID {_id} не найден")
         return
 
+    w_id, city_id, address, label, is_central, city_name = row
     warehouse = Warehouse(
-        id=row[0],
-        city_id=row[1],
-        address=row[2],
-        label=row[3],
-        is_central=row[4],
-        city_name=row[5]
+        id=w_id,
+        city_id=city_id,
+        address=address,
+        label=label,
+        is_central=is_central,
+        city_name=city_name
     )
     _render_warehouse(warehouse)
 
@@ -228,13 +229,14 @@ def delete_warehouse(_id: str) -> None:
         render_error(f"Склад с ID {_id} не найден")
         return
 
+    w_id, city_id, address, label, is_central, city_name = row
     warehouse = Warehouse(
-        id=row[0],
-        city_id=row[1],
-        address=row[2],
-        label=row[3],
-        is_central=row[4],
-        city_name=row[5]
+        id=w_id,
+        city_id=city_id,
+        address=address,
+        label=label,
+        is_central=is_central,
+        city_name=city_name
     )
     _render_warehouse(warehouse)
 

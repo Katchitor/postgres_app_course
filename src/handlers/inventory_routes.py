@@ -1,11 +1,13 @@
 from dataclasses import dataclass
 from decimal import Decimal
+from datetime import timedelta
 
 from prompt_toolkit import prompt
 from prompt_toolkit.shortcuts import choice
 from prompt_toolkit.formatted_text import HTML
 from psycopg.rows import class_row
 from rich.table import Table
+from rich.panel import Panel
 
 from console import console, render_error
 from db import get_conn
@@ -24,7 +26,7 @@ class City:
 class Route:
     from_city_id: int
     to_city_id: int
-    duration_days: int
+    duration: timedelta
     min_amount: Decimal
 
 
@@ -43,6 +45,20 @@ def _get_city_name(city_id: int) -> str:
         cur.execute("SELECT name FROM catalog.cities WHERE id = %s", (city_id,))
         result = cur.fetchone()
         return result[0] if result else f"Город {city_id}"
+
+
+def _format_interval(duration: timedelta) -> str:
+    """Форматирует INTERVAL для отображения"""
+    days = duration.days
+    hours = duration.seconds // 3600
+    minutes = (duration.seconds % 3600) // 60
+    
+    if days > 0:
+        return f"{days} дн."
+    elif hours > 0:
+        return f"{hours} ч."
+    else:
+        return f"{minutes} мин."
 
 
 def _get_available_city_pairs() -> list[tuple[int, int, str, str]]:
@@ -71,7 +87,7 @@ def _get_existing_routes() -> list[Route]:
     conn = get_conn()
     with conn.cursor(row_factory=class_row(Route)) as cur:
         cur.execute("""
-            SELECT from_city_id, to_city_id, duration_days, min_amount
+            SELECT from_city_id, to_city_id, duration, min_amount
             FROM inventory.routes
             ORDER BY from_city_id, to_city_id
         """)
@@ -85,7 +101,7 @@ def list_routes() -> None:
     table = Table(title="Маршруты перемещения")
     table.add_column("Откуда", style="green")
     table.add_column("Куда", style="green")
-    table.add_column("Дней", style="yellow", justify="right")
+    table.add_column("Время", style="yellow", justify="right")
     table.add_column("Мин. сумма", style="cyan", justify="right")
 
     with conn.cursor() as cur:
@@ -95,7 +111,7 @@ def list_routes() -> None:
                 r.to_city_id,
                 c1.name as from_city,
                 c2.name as to_city,
-                r.duration_days,
+                r.duration,
                 r.min_amount
             FROM inventory.routes r
             JOIN catalog.cities c1 ON c1.id = r.from_city_id
@@ -109,10 +125,11 @@ def list_routes() -> None:
             return
 
         for row in rows:
+            duration_str = _format_interval(row[4])
             table.add_row(
                 row[2],  # from_city
                 row[3],  # to_city
-                str(row[4]),  # duration_days
+                duration_str,
                 f"{row[5]:.2f} ₽"  # min_amount
             )
 
@@ -122,24 +139,20 @@ def list_routes() -> None:
 @command("add route", "добавить маршрут", CATEGORY_INVENTORY, [ROLE_INVENTORY_MANAGER])
 def add_route() -> None:
     """Добавляет новый маршрут между городами"""
-    # Проверяем, есть ли города в системе
     cities = _get_cities()
     if not cities:
         render_error("Нет городов в системе. Сначала добавьте города.")
         return
 
-    # Получаем доступные пары городов
     available = _get_available_city_pairs()
     if not available:
-        render_error("Нет доступных пар городов для создания маршрута (все возможные маршруты уже созданы)")
+        render_error("Нет доступных пар городов для создания маршрута")
         return
 
-    # Формируем опции для выбора
     options = []
     for from_id, to_id, from_name, to_name in available:
         options.append(((from_id, to_id), f"{from_name} → {to_name}"))
 
-    # Выбираем маршрут
     selected = choice(
         message=HTML("<b>Выберите маршрут</b>"),
         options=options,
@@ -149,40 +162,39 @@ def add_route() -> None:
     from_city_id, to_city_id = selected
 
     # Вводим параметры маршрута
-    duration = prompt("Время доставки (дней): ", validator=NonEmptyValidator())
+    console.print("[dim]Примеры: '2 days', '4 hours', '30 minutes'[/dim]")
+    duration_input = prompt("Время доставки: ", validator=NonEmptyValidator()).strip()
     min_amount = prompt("Минимальная сумма для перемещения (руб): ", validator=NonEmptyValidator())
 
-    # Сохраняем в БД
     conn = get_conn()
     with conn.cursor() as cur:
         cur.execute("""
-            INSERT INTO inventory.routes (from_city_id, to_city_id, duration_days, min_amount)
-            VALUES (%s, %s, %s, %s)
-        """, (from_city_id, to_city_id, int(duration), Decimal(min_amount)))
+            INSERT INTO inventory.routes (from_city_id, to_city_id, duration, min_amount)
+            VALUES (%s, %s, %s::interval, %s)
+        """, (from_city_id, to_city_id, duration_input, Decimal(min_amount)))
 
     from_name = _get_city_name(from_city_id)
     to_name = _get_city_name(to_city_id)
     console.print(f"[green]Маршрут {from_name} → {to_name} добавлен![/green]")
-    console.print(f"[dim]Доставка: {duration} дней, мин. сумма: {min_amount} ₽[/dim]")
+    console.print(f"[dim]Доставка: {duration_input}, мин. сумма: {min_amount} ₽[/dim]")
 
 
 @command("edit route", "редактировать маршрут", CATEGORY_INVENTORY, [ROLE_INVENTORY_MANAGER])
 def edit_route() -> None:
-    """Редактирует существующий маршрут (duration_days и min_amount)"""
+    """Редактирует существующий маршрут (duration и min_amount)"""
     routes = _get_existing_routes()
     if not routes:
         render_error("Нет маршрутов для редактирования")
         return
 
-    # Формируем опции для выбора
     options = []
     for route in routes:
         from_name = _get_city_name(route.from_city_id)
         to_name = _get_city_name(route.to_city_id)
-        label = f"{from_name} → {to_name} ({route.duration_days} дн., мин. {route.min_amount:.2f} ₽)"
+        duration_str = _format_interval(route.duration)
+        label = f"{from_name} → {to_name} ({duration_str}, мин. {route.min_amount:.2f} ₽)"
         options.append(((route.from_city_id, route.to_city_id), label))
 
-    # Выбираем маршрут
     selected = choice(
         message=HTML("<b>Выберите маршрут для редактирования</b>"),
         options=options,
@@ -193,15 +205,16 @@ def edit_route() -> None:
     from_name = _get_city_name(from_city_id)
     to_name = _get_city_name(to_city_id)
 
-    # Находим текущий маршрут
     current_route = next(r for r in routes if r.from_city_id == from_city_id and r.to_city_id == to_city_id)
 
-    # Вводим новые параметры
     console.print(f"\n[bold]Редактирование маршрута {from_name} → {to_name}[/bold]")
-    duration = prompt(
-        f"Время доставки (дней) [текущее: {current_route.duration_days}]: ",
+    current_duration_str = _format_interval(current_route.duration)
+    
+    console.print("[dim]Примеры: '2 days', '4 hours', '30 minutes'[/dim]")
+    duration_input = prompt(
+        f"Время доставки [текущее: {current_duration_str}]: ",
         validator=NonEmptyValidator(),
-        default=str(current_route.duration_days)
+        default=str(current_route.duration)
     )
     min_amount = prompt(
         f"Минимальная сумма для перемещения (руб) [текущая: {current_route.min_amount:.2f}]: ",
@@ -209,17 +222,16 @@ def edit_route() -> None:
         default=str(current_route.min_amount)
     )
 
-    # Обновляем в БД
     conn = get_conn()
     with conn.cursor() as cur:
         cur.execute("""
             UPDATE inventory.routes 
-            SET duration_days = %s, min_amount = %s
+            SET duration = %s::interval, min_amount = %s
             WHERE from_city_id = %s AND to_city_id = %s
-        """, (int(duration), Decimal(min_amount), from_city_id, to_city_id))
+        """, (duration_input, Decimal(min_amount), from_city_id, to_city_id))
 
     console.print(f"[green]Маршрут {from_name} → {to_name} обновлен![/green]")
-    console.print(f"[dim]Доставка: {duration} дней, мин. сумма: {min_amount} ₽[/dim]")
+    console.print(f"[dim]Доставка: {duration_input}, мин. сумма: {min_amount} ₽[/dim]")
 
 
 @command("delete route", "удалить маршрут", CATEGORY_INVENTORY, [ROLE_INVENTORY_MANAGER])
@@ -230,15 +242,14 @@ def delete_route() -> None:
         render_error("Нет маршрутов для удаления")
         return
 
-    # Формируем опции для выбора
     options = []
     for route in routes:
         from_name = _get_city_name(route.from_city_id)
         to_name = _get_city_name(route.to_city_id)
-        label = f"{from_name} → {to_name} ({route.duration_days} дн., мин. {route.min_amount:.2f} ₽)"
+        duration_str = _format_interval(route.duration)
+        label = f"{from_name} → {to_name} ({duration_str}, мин. {route.min_amount:.2f} ₽)"
         options.append(((route.from_city_id, route.to_city_id), label))
 
-    # Выбираем маршрут
     selected = choice(
         message=HTML("<b>Выберите маршрут для удаления</b>"),
         options=options,
@@ -249,7 +260,6 @@ def delete_route() -> None:
     from_name = _get_city_name(from_city_id)
     to_name = _get_city_name(to_city_id)
 
-    # Подтверждение удаления
     answer = prompt(
         f"Вы уверены, что хотите удалить маршрут {from_name} → {to_name}? (y/n): ",
         validator=YesNoValidator()
@@ -275,15 +285,14 @@ def show_route() -> None:
         render_error("Нет маршрутов для просмотра")
         return
 
-    # Формируем опции для выбора
     options = []
     for route in routes:
         from_name = _get_city_name(route.from_city_id)
         to_name = _get_city_name(route.to_city_id)
-        label = f"{from_name} → {to_name} ({route.duration_days} дн., мин. {route.min_amount:.2f} ₽)"
+        duration_str = _format_interval(route.duration)
+        label = f"{from_name} → {to_name} ({duration_str}, мин. {route.min_amount:.2f} ₽)"
         options.append(((route.from_city_id, route.to_city_id), label))
 
-    # Выбираем маршрут
     selected = choice(
         message=HTML("<b>Выберите маршрут для просмотра</b>"),
         options=options,
@@ -294,7 +303,6 @@ def show_route() -> None:
     from_name = _get_city_name(from_city_id)
     to_name = _get_city_name(to_city_id)
 
-    # Получаем детальную информацию
     conn = get_conn()
     with conn.cursor() as cur:
         cur.execute("""
@@ -303,7 +311,7 @@ def show_route() -> None:
                 r.to_city_id,
                 c1.name as from_city,
                 c2.name as to_city,
-                r.duration_days,
+                r.duration,
                 r.min_amount
             FROM inventory.routes r
             JOIN catalog.cities c1 ON c1.id = r.from_city_id
@@ -316,17 +324,15 @@ def show_route() -> None:
         render_error("Маршрут не найден")
         return
 
-    # Выводим информацию
-    from rich.panel import Panel
-    from rich.table import Table
-
     table = Table(show_header=False, box=None, padding=(0, 2))
     table.add_column("Поле", style="bold cyan", width=20)
     table.add_column("Значение", style="white")
 
+    duration_str = _format_interval(row[4])
+    
     table.add_row("Откуда", row[2])
     table.add_row("Куда", row[3])
-    table.add_row("Время доставки", f"{row[4]} дней")
+    table.add_row("Время доставки", duration_str)
     table.add_row("Мин. сумма", f"{row[5]:.2f} ₽")
 
     panel = Panel(

@@ -1,9 +1,4 @@
 -- ============ ОТКАТ ПРАВ WORKER ============
--- Отзываем права на чтение catalog
-ALTER DEFAULT PRIVILEGES IN SCHEMA catalog REVOKE SELECT ON TABLES FROM worker;
-REVOKE SELECT ON ALL TABLES IN SCHEMA catalog FROM worker;
-REVOKE USAGE ON SCHEMA catalog FROM worker;
-
 -- Отзываем права на последовательности в inventory
 ALTER DEFAULT PRIVILEGES IN SCHEMA inventory REVOKE USAGE ON SEQUENCES FROM worker;
 REVOKE USAGE ON ALL SEQUENCES IN SCHEMA inventory FROM worker;
@@ -35,11 +30,6 @@ REVOKE ALL PRIVILEGES ON inventory.stock FROM worker;
 REVOKE USAGE ON SCHEMA inventory FROM worker;
 
 -- ============ ОТКАТ ПРАВ INVENTORY_MANAGER ============
--- Отзываем права на чтение catalog
-ALTER DEFAULT PRIVILEGES IN SCHEMA catalog REVOKE SELECT ON TABLES FROM inventory_manager;
-REVOKE SELECT ON ALL TABLES IN SCHEMA catalog FROM inventory_manager;
-REVOKE USAGE ON SCHEMA catalog FROM inventory_manager;
-
 -- Отзываем права на обновление статуса заказов
 REVOKE UPDATE (status) ON sales.orders FROM inventory_manager;
 
