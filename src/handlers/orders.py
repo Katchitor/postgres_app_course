@@ -10,7 +10,9 @@ from prompt_toolkit.shortcuts import choice
 from prompt_toolkit.formatted_text import HTML
 from validators import NonEmptyValidator, YesNoValidator
 from psycopg.rows import class_row
-from auth import ROLE_SALES_MANAGER, ROLE_APP_USER
+from typing import Optional
+from auth import ROLE_SALES_MANAGER, ROLE_APP_USER, get_current_user_id
+
 
 @dataclass
 class Order:
@@ -19,6 +21,8 @@ class Order:
     total_amount: Decimal
     created_at: datetime
     warehouse_id: int
+    created_by: int
+    processing_by: Optional[int] = None
 
 
 @dataclass
@@ -34,7 +38,12 @@ class OrderItem:
 def _get_warehouses() -> list[tuple[int, str]]:
     conn = get_conn()
     with conn.cursor() as cur:
-        cur.execute("SELECT id, COALESCE(label, city) FROM catalog.warehouses ORDER BY id")
+        cur.execute("""
+            SELECT w.id, COALESCE(w.label, c.name) 
+            FROM catalog.warehouses w
+            JOIN catalog.cities c ON c.id = w.city_id
+            ORDER BY w.id
+        """)
         return cur.fetchall()
 
 
@@ -66,8 +75,14 @@ def _get_product_info(product_id: int) -> tuple[Decimal, str]:
 def _get_warehouse_name(warehouse_id: int) -> str:
     conn = get_conn()
     with conn.cursor() as cur:
-        cur.execute("SELECT COALESCE(label, city) FROM catalog.warehouses WHERE id = %s", (warehouse_id,))
-        return cur.fetchone()[0]
+        cur.execute("""
+            SELECT COALESCE(w.label, c.name) 
+            FROM catalog.warehouses w
+            JOIN catalog.cities c ON c.id = w.city_id
+            WHERE w.id = %s
+        """, (warehouse_id,))
+        result = cur.fetchone()
+        return result[0] if result else f"Склад #{warehouse_id}"
 
 
 def _get_order_items(order_id: int) -> list[OrderItem]:
@@ -127,7 +142,8 @@ def _render_items(order_id: int):
         console.print("\n[bold]Товары в заказе:[/bold]")
         for item in items:
             _, name = _get_product_info(item.product_id)
-            console.print(f"  • #{item.product_id} {name}: {item.quantity} x {item.price:.2f} = {item.quantity * item.price:.2f} ₽")
+            console.print(
+                f"  • #{item.product_id} {name}: {item.quantity} x {item.price:.2f} = {item.quantity * item.price:.2f} ₽")
 
 
 def _select_item(order_id: int, action: str) -> OrderItem | None:
@@ -136,7 +152,7 @@ def _select_item(order_id: int, action: str) -> OrderItem | None:
     if not items:
         render_error("В заказе нет товаров")
         return None
-    
+
     options = []
     for item in items:
         _, name = _get_product_info(item.product_id)
@@ -146,7 +162,7 @@ def _select_item(order_id: int, action: str) -> OrderItem | None:
         else:
             label += f", сумма: {item.quantity * item.price:.2f})"
         options.append((item.product_id, label))
-    
+
     product_id = choice(
         message=HTML(f"<b>Выберите товар для {action}</b>"),
         options=options,
@@ -162,22 +178,22 @@ def _add_products_interactively(order_id: int, conn) -> None:
         if not available:
             console.print("[yellow]Все товары добавлены[/yellow]")
             break
-        
+
         product_id = choice(
             message=HTML("<b>Выберите товар</b>"),
             options=available,
             bottom_toolbar="Esc - завершить"
         )
-        
+
         quantity = prompt("Количество: ", validator=NonEmptyValidator())
         price, _ = _get_product_info(product_id)
-        
+
         with conn.cursor() as cur:
             cur.execute(
                 "INSERT INTO sales.order_items (order_id, product_id, quantity, price) VALUES (%s, %s, %s, %s)",
                 (order_id, product_id, quantity, price)
             )
-        
+
         if not YesNoValidator.is_yes(prompt("Добавить еще? (y/n): ", validator=YesNoValidator())):
             break
 
@@ -193,7 +209,7 @@ def list_orders() -> None:
     table.add_column("Сумма")
     table.add_column("Склад")
     table.add_column("Дата")
-    
+
     with conn.cursor(row_factory=class_row(Order)) as cur:
         cur.execute("SELECT * FROM sales.orders ORDER BY id DESC")
         for order in cur.fetchall():
@@ -220,25 +236,28 @@ def show_order(order_id: str) -> None:
 @command("add order", "создать заказ", CATEGORY_SALES, [ROLE_SALES_MANAGER, ROLE_APP_USER])
 def add_order() -> None:
     conn = get_conn()
-    
+
     warehouses = _get_warehouses()
     if not warehouses:
         render_error("Нет складов")
         return
-    
+
     warehouse_id = choice(
         message=HTML("<b>Выберите склад</b>"),
         options=warehouses,
         bottom_toolbar="Стрелки ↑/↓, Enter"
     )
-    
+
+    # Получаем ID текущего пользователя
+    current_user_id = get_current_user_id()
+
     with conn.cursor() as cur:
         cur.execute(
-            "INSERT INTO sales.orders (status, total_amount, warehouse_id) VALUES (%s, %s, %s) RETURNING id",
-            ("unpublished", 0, warehouse_id)
+            "INSERT INTO sales.orders (status, total_amount, warehouse_id, created_by) VALUES (%s, %s, %s, %s) RETURNING id",
+            ("unpublished", 0, warehouse_id, current_user_id)
         )
         order_id = cur.fetchone()[0]
-    
+
     console.print(f"[green]Заказ #{order_id} создан![/green]")
     _add_products_interactively(order_id, conn)
     total = _update_total(order_id)
@@ -250,24 +269,24 @@ def edit_order(order_id: str) -> None:
     order = _check_order(order_id, ["unpublished"])
     if not order:
         return
-    
+
     _render_order(order)
-    
+
     warehouses = _get_warehouses()
     if not warehouses:
         render_error("Нет складов")
         return
-    
+
     new_warehouse = choice(
         message=HTML(f"<b>Новый склад для заказа #{order_id}</b>"),
         options=warehouses,
         bottom_toolbar="Стрелки ↑/↓, Enter"
     )
-    
+
     conn = get_conn()
     with conn.cursor() as cur:
         cur.execute("UPDATE sales.orders SET warehouse_id = %s WHERE id = %s", (new_warehouse, order_id))
-    
+
     console.print(f"[green]Склад изменен на {_get_warehouse_name(new_warehouse)}[/green]")
 
 
@@ -276,9 +295,9 @@ def delete_order(order_id: str) -> None:
     order = _check_order(order_id, ["unpublished"])
     if not order:
         return
-    
+
     _render_order(order)
-    
+
     if YesNoValidator.is_yes(prompt("Удалить заказ? (y/n): ", validator=YesNoValidator())):
         conn = get_conn()
         with conn.cursor() as cur:
@@ -291,14 +310,14 @@ def publish_order(order_id: str) -> None:
     order = _check_order(order_id, ["unpublished"])
     if not order:
         return
-    
+
     if order.total_amount == 0:
         render_error("Нельзя опубликовать пустой заказ")
         return
-    
+
     _render_order(order)
     _render_items(order.id)
-    
+
     if YesNoValidator.is_yes(prompt("Опубликовать заказ? (y/n): ", validator=YesNoValidator())):
         conn = get_conn()
         with conn.cursor() as cur:
@@ -311,30 +330,30 @@ def add_order_item(order_id: str) -> None:
     order = _check_order(order_id, ["unpublished"])
     if not order:
         return
-    
+
     _render_order(order)
-    
+
     available = _get_available_products(order.id)
     if not available:
         render_error("Все товары уже добавлены")
         return
-    
+
     product_id = choice(
         message=HTML("<b>Выберите товар</b>"),
         options=available,
         bottom_toolbar="Стрелки ↑/↓, Enter"
     )
-    
+
     quantity = prompt("Количество: ", validator=NonEmptyValidator())
     price, _ = _get_product_info(product_id)
-    
+
     conn = get_conn()
     with conn.cursor() as cur:
         cur.execute(
             "INSERT INTO sales.order_items (order_id, product_id, quantity, price) VALUES (%s, %s, %s, %s)",
             (order_id, product_id, quantity, price)
         )
-    
+
     total = _update_total(order.id)
     console.print(f"[green]Товар добавлен! Сумма заказа: {total:.2f} ₽[/green]")
 
@@ -344,29 +363,29 @@ def edit_order_item(order_id: str) -> None:
     order = _check_order(order_id, ["unpublished"])
     if not order:
         return
-    
+
     _render_order(order)
-    
+
     item = _select_item(order.id, "edit")
     if not item:
         return
-    
+
     _, name = _get_product_info(item.product_id)
     console.print(f"\n[bold]Редактирование: {name}[/bold]")
-    
+
     new_qty = prompt(
         f"Количество (текущее: {item.quantity}): ",
         validator=NonEmptyValidator(),
         default=str(item.quantity)
     )
-    
+
     conn = get_conn()
     with conn.cursor() as cur:
         cur.execute(
             "UPDATE sales.order_items SET quantity = %s WHERE order_id = %s AND product_id = %s",
             (new_qty, item.order_id, item.product_id)
         )
-    
+
     total = _update_total(order.id)
     console.print(f"[green]Товар обновлен! Сумма заказа: {total:.2f} ₽[/green]")
 
@@ -376,13 +395,13 @@ def delete_order_item(order_id: str) -> None:
     order = _check_order(order_id, ["unpublished"])
     if not order:
         return
-    
+
     _render_order(order)
-    
+
     item = _select_item(order.id, "delete")
     if not item:
         return
-    
+
     if YesNoValidator.is_yes(prompt("Удалить товар? (y/n): ", validator=YesNoValidator())):
         conn = get_conn()
         with conn.cursor() as cur:
@@ -390,6 +409,6 @@ def delete_order_item(order_id: str) -> None:
                 "DELETE FROM sales.order_items WHERE order_id = %s AND product_id = %s",
                 (item.order_id, item.product_id)
             )
-        
+
         total = _update_total(order.id)
         console.print(f"[green]Товар удален! Сумма заказа: {total:.2f} ₽[/green]")
