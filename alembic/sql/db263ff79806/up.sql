@@ -73,14 +73,10 @@ CREATE SEQUENCE IF NOT EXISTS inventory.reserves_id_seq;
 
 CREATE TABLE IF NOT EXISTS inventory.reserves (
     id SERIAL PRIMARY KEY,
-    order_id INTEGER,
-    product_id INTEGER NOT NULL,
-    warehouse_id INTEGER NOT NULL,
-    quantity INTEGER NOT NULL,
-    reserved_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY (order_id) REFERENCES sales.orders(id) ON DELETE CASCADE,
-    FOREIGN KEY (product_id) REFERENCES catalog.products(id) ON DELETE CASCADE,
-    FOREIGN KEY (warehouse_id) REFERENCES catalog.warehouses(id) ON DELETE CASCADE
+    order_id INTEGER NOT NULL REFERENCES sales.orders(id) ON DELETE CASCADE,
+    product_id INTEGER NOT NULL REFERENCES catalog.products(id) ON DELETE CASCADE,
+    quantity INTEGER NOT NULL DEFAULT 0 CHECK (quantity >= 0),
+    UNIQUE (order_id, product_id)
 );
 
 -- ============ ТАБЛИЦА DELIVERIES ============
