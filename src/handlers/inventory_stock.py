@@ -42,7 +42,7 @@ def view_warehouse_stock(warehouse_id: str) -> None:
     
     table = Table(title=f"Остатки на складе: {warehouse_name}")
     table.add_column("Товар", style="green", min_width=30)
-    table.add_column("Количество", style="yellow", justify="right")
+    table.add_column("В наличии", style="yellow", justify="right")
     table.add_column("Зарезервировано", style="cyan", justify="right")
     table.add_column("Доступно", style="magenta", justify="right")
     
@@ -65,7 +65,6 @@ def view_warehouse_stock(warehouse_id: str) -> None:
                 WHERE o.warehouse_id = %s
                 GROUP BY r.product_id
             ) r ON r.product_id = p.id
-            WHERE COALESCE(s.quantity, 0) > 0 OR COALESCE(r.reserved, 0) > 0
             ORDER BY available DESC, p.name
         """, (warehouse_id, warehouse_id))
         rows = cur.fetchall()
@@ -77,9 +76,9 @@ def view_warehouse_stock(warehouse_id: str) -> None:
         for row in rows:
             table.add_row(
                 row[1],  # name
-                str(row[2]),  # quantity
-                str(row[3]),  # reserved
-                str(row[4])  # available
+                str(row[2]),  # quantity (в наличии)
+                str(row[3]),  # reserved (зарезервировано)
+                str(row[4])  # available (доступно)
             )
     
     console.print(table)
@@ -98,7 +97,7 @@ def view_product_stock(product_id: str) -> None:
     
     table = Table(title=f"Остатки товара: {product_name}")
     table.add_column("Склад", style="green", min_width=25)
-    table.add_column("Количество", style="yellow", justify="right")
+    table.add_column("В наличии", style="yellow", justify="right")
     table.add_column("Зарезервировано", style="cyan", justify="right")
     table.add_column("Доступно", style="magenta", justify="right")
     
@@ -121,7 +120,6 @@ def view_product_stock(product_id: str) -> None:
                 WHERE r.product_id = %s
                 GROUP BY o.warehouse_id
             ) r ON r.warehouse_id = w.id
-            WHERE COALESCE(s.quantity, 0) > 0 OR COALESCE(r.reserved, 0) > 0
             ORDER BY available DESC
         """, (product_id, product_id))
         rows = cur.fetchall()
@@ -133,9 +131,9 @@ def view_product_stock(product_id: str) -> None:
         for row in rows:
             table.add_row(
                 row[0],  # warehouse_name
-                str(row[1]),  # quantity
-                str(row[2]),  # reserved
-                str(row[3])  # available
+                str(row[1]),  # quantity (в наличии)
+                str(row[2]),  # reserved (зарезервировано)
+                str(row[3])  # available (доступно)
             )
     
     console.print(table)

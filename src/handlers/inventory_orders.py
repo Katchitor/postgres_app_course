@@ -164,38 +164,29 @@ def _get_delivery_status(order_id: int, product_id: int) -> Optional[str]:
         return result[0] if result else None
 
 
-def _get_item_status(order_id: int, product_id: int, warehouse_id: int, order_status: str) -> tuple[str, Optional[str], Optional[datetime]]:
-    """
-    Вычисляет статус позиции заказа.
-    Возвращает: (status_display, from_warehouse, arriving_at)
-    """
+def _get_item_status(order_id: int, product_id: int, order_status: str) -> tuple[str, Optional[str], Optional[datetime]]:
     # 1. Заказ новый
     if order_status == 'new':
         return "ожидает обработки", None, None
     
-    # 2. Проверяем доставку
+    # 2. Проверяем доставку (самый высокий приоритет)
     delivery_status = _get_delivery_status(order_id, product_id)
     if delivery_status == 'shipped':
         return "отгружено", None, None
     elif delivery_status == 'planned':
         return "запланирована отгрузка", None, None
     
-    # 3. Проверяем резерв
-    reserved = _get_reserved_quantity(order_id, product_id)
-    if reserved > 0:
-        transfer_status, from_warehouse, arriving_at = _get_transfer_info(order_id, product_id)
-        if transfer_status == 'shipped':
-            return f"в пути из {from_warehouse}", from_warehouse, arriving_at
-        elif transfer_status == 'planned':
-            return f"запрошен из {from_warehouse}", from_warehouse, arriving_at
-        return "в резерве", None, None
-    
-    # 4. Проверяем перемещения (без резерва)
+    # 3. Проверяем перемещение (если товар в пути или запрошен)
     transfer_status, from_warehouse, arriving_at = _get_transfer_info(order_id, product_id)
     if transfer_status == 'shipped':
         return f"в пути из {from_warehouse}", from_warehouse, arriving_at
     elif transfer_status == 'planned':
         return f"запрошен из {from_warehouse}", from_warehouse, arriving_at
+    
+    # 4. Проверяем резерв
+    reserved = _get_reserved_quantity(order_id, product_id)
+    if reserved > 0:
+        return "в резерве", None, None
     
     # 5. Ожидает обработки
     return "ожидает обработки", None, None
