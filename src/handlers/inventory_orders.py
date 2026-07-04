@@ -235,8 +235,7 @@ def _render_order_card(order: Order) -> None:
         
         status, from_warehouse, arriving_at = _get_item_status(
             order.id, 
-            item.product_id, 
-            order.warehouse_id,
+            item.product_id,
             order.status
         )
         
