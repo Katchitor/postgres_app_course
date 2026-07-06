@@ -59,13 +59,7 @@ def _get_order_with_creator(order_id: int) -> Optional[Order]:
     conn = get_conn()
     with conn.cursor() as cur:
         cur.execute("""
-            SELECT 
-                o.id,
-                o.status,
-                o.total_amount,
-                o.created_at,
-                o.warehouse_id,
-                u.username
+            SELECT o.id, o.status, o.total_amount, o.created_at, o.warehouse_id, u.username
             FROM sales.orders o
             LEFT JOIN auth.users u ON u.id = o.created_by
             WHERE o.id = %s
@@ -111,10 +105,7 @@ def _get_transfer_info(order_id: int, product_id: int) -> tuple[Optional[str], O
     conn = get_conn()
     with conn.cursor() as cur:
         cur.execute("""
-            SELECT 
-                ti.status,
-                c_from.name as from_warehouse,
-                t.arriving_at
+            SELECT ti.status, c_from.name as from_warehouse, t.arriving_at
             FROM inventory.transfer_items ti
             JOIN inventory.transfers t ON t.id = ti.transfer_id
             JOIN catalog.warehouses w_from ON w_from.id = t.from_warehouse_id
@@ -145,27 +136,26 @@ def _get_delivery_status(order_id: int, product_id: int) -> Optional[str]:
         return result[0] if result else None
 
 
-def _get_item_status(order_id: int, product_id: int, order_status: str) -> tuple[
-    str, Optional[str], Optional[datetime]]:
+def _get_item_status(order_id: int, product_id: int, order_status: str) -> tuple[str, Optional[str], Optional[datetime]]:
     if order_status == 'new':
         return "ожидает обработки", None, None
-
+    
     delivery_status = _get_delivery_status(order_id, product_id)
     if delivery_status == 'shipped':
         return "отгружено", None, None
     elif delivery_status == 'planned':
         return "запланирована отгрузка", None, None
-
+    
     transfer_status, from_warehouse, arriving_at = _get_transfer_info(order_id, product_id)
     if transfer_status == 'shipped':
         return f"в пути из {from_warehouse}", from_warehouse, arriving_at
     elif transfer_status == 'planned':
         return f"запрошен из {from_warehouse}", from_warehouse, arriving_at
-
+    
     reserved = _get_reserved_quantity(order_id, product_id)
     if reserved > 0:
         return "в резерве", None, None
-
+    
     return "ожидает обработки", None, None
 
 
@@ -173,40 +163,37 @@ def _render_order_card(order: Order) -> None:
     table = Table(show_header=False, box=None, padding=(0, 2))
     table.add_column("Поле", style="bold cyan", width=20)
     table.add_column("Значение", style="white")
-
+    
     table.add_row("ID заказа", str(order.id))
     table.add_row("Статус", order.status)
     table.add_row("Сумма", f"{order.total_amount:.2f} ₽")
     table.add_row("Склад", _get_warehouse_name(order.warehouse_id))
     table.add_row("Создан", order.created_at.strftime("%d.%m.%Y %H:%M"))
     table.add_row("Создал", order.created_by_username)
-
+    
     panel = Panel(table, title="[bold]Информация о заказе[/bold]", border_style="cyan")
     console.print(panel)
-
+    
     items = _get_order_items(order.id)
     if not items:
         console.print("[yellow]Заказ пуст[/yellow]")
         return
-
+    
     console.print("\n[bold]Позиции заказа:[/bold]")
-
+    
     items_table = Table(show_header=True, header_style="bold")
     items_table.add_column("Товар", style="green", min_width=25)
     items_table.add_column("Кол-во", style="yellow", justify="right")
     items_table.add_column("Цена", style="cyan", justify="right")
     items_table.add_column("Сумма", style="magenta", justify="right")
     items_table.add_column("Статус", style="white", min_width=30)
-
+    
     for item in items:
-        status, from_warehouse, arriving_at = _get_item_status(
-            order.id, item.product_id, order.status
-        )
-
+        status, from_warehouse, arriving_at = _get_item_status(order.id, item.product_id, order.status)
         status_display = status
         if arriving_at and "в пути" in status:
             status_display += f"\n[dim]прибытие: {arriving_at.strftime('%d.%m.%Y %H:%M')}[/dim]"
-
+        
         items_table.add_row(
             _get_product_name(item.product_id),
             str(item.quantity),
@@ -214,7 +201,7 @@ def _render_order_card(order: Order) -> None:
             f"{item.quantity * item.price:.2f}",
             status_display
         )
-
+    
     console.print(items_table)
 
 
@@ -227,7 +214,7 @@ def list_orders_new() -> None:
     table.add_column("Сумма", style="cyan", justify="right")
     table.add_column("Создан", style="yellow", min_width=16)
     table.add_column("Создал", style="white", min_width=15)
-
+    
     with conn.cursor() as cur:
         cur.execute("""
             SELECT o.id, o.total_amount, o.created_at, o.warehouse_id, u.username
@@ -237,11 +224,9 @@ def list_orders_new() -> None:
             ORDER BY o.created_at ASC
         """)
         rows = cur.fetchall()
-
         if not rows:
             console.print("[yellow]Нет новых заказов[/yellow]")
             return
-
         for row in rows:
             table.add_row(
                 str(row[0]),
@@ -250,7 +235,6 @@ def list_orders_new() -> None:
                 row[2].strftime("%d.%m.%Y %H:%M"),
                 row[4] or f"User #{row[0]}"
             )
-
     console.print(table)
 
 
@@ -263,7 +247,7 @@ def list_orders_processing() -> None:
     table.add_column("Сумма", style="cyan", justify="right")
     table.add_column("Создан", style="yellow", min_width=16)
     table.add_column("Обрабатывает", style="white", min_width=15)
-
+    
     with conn.cursor() as cur:
         cur.execute("""
             SELECT o.id, o.total_amount, o.created_at, o.warehouse_id, u.username
@@ -273,11 +257,9 @@ def list_orders_processing() -> None:
             ORDER BY o.created_at ASC
         """)
         rows = cur.fetchall()
-
         if not rows:
             console.print("[yellow]Нет заказов в обработке[/yellow]")
             return
-
         for row in rows:
             table.add_row(
                 str(row[0]),
@@ -286,7 +268,6 @@ def list_orders_processing() -> None:
                 row[2].strftime("%d.%m.%Y %H:%M"),
                 row[4] or "Неизвестно"
             )
-
     console.print(table)
 
 
@@ -300,7 +281,7 @@ def list_orders_my() -> None:
     table.add_column("Сумма", style="cyan", justify="right")
     table.add_column("Создан", style="yellow", min_width=16)
     table.add_column("Статус", style="white", min_width=15)
-
+    
     with conn.cursor() as cur:
         cur.execute("""
             SELECT o.id, o.total_amount, o.created_at, o.warehouse_id, o.status
@@ -310,11 +291,9 @@ def list_orders_my() -> None:
             ORDER BY o.created_at ASC
         """, (user_id,))
         rows = cur.fetchall()
-
         if not rows:
             console.print("[yellow]У вас нет заказов в обработке[/yellow]")
             return
-
         for row in rows:
             table.add_row(
                 str(row[0]),
@@ -323,65 +302,79 @@ def list_orders_my() -> None:
                 row[2].strftime("%d.%m.%Y %H:%M"),
                 row[4]
             )
-
     console.print(table)
 
 
 @command("mark order processing", "взять заказ в обработку", CATEGORY_INVENTORY, [ROLE_INVENTORY_MANAGER])
 def mark_order_processing(order_id: str) -> None:
-    """Взять заказ в обработку с блокировкой строки"""
+    """Взять заказ в обработку с блокировкой строки (инпуты вне транзакции)"""
     conn = get_conn()
-
+    
+    # 1. Сначала читаем данные вне транзакции для отображения пользователю
+    with conn.cursor() as cur:
+        cur.execute("""
+            SELECT o.id, o.status, o.total_amount, o.created_at, o.warehouse_id, o.created_by, u.username
+            FROM sales.orders o
+            LEFT JOIN auth.users u ON u.id = o.created_by
+            WHERE o.id = %s
+        """, (order_id,))
+        row = cur.fetchone()
+        
+        if not row:
+            render_error(f"Заказ с ID {order_id} не найден")
+            return
+        
+        if row[1] != 'new':
+            render_error(f"Заказ имеет статус '{row[1]}', нельзя взять в обработку")
+            return
+        
+        order = Order(
+            id=row[0],
+            status=row[1],
+            total_amount=row[2],
+            created_at=row[3],
+            warehouse_id=row[4],
+            created_by_username=row[6] or f"User #{row[0]}"
+        )
+        
+        # Показываем карточку заказа
+        _render_order_card(order)
+    
+    # 2. Инпут вне транзакции (пока не блокируем)
+    if not YesNoValidator.is_yes(prompt(f"Взять заказ #{order_id} в обработку? (y/n): ", validator=YesNoValidator())):
+        console.print("[yellow]Операция отменена[/yellow]")
+        return
+    
+    # 3. Теперь открываем транзакцию с блокировкой и повторно проверяем
     with conn.transaction():
         with conn.cursor() as cur:
             cur.execute("""
-                SELECT o.id, o.status, o.total_amount, o.created_at, o.warehouse_id, o.created_by
-                FROM sales.orders o
-                WHERE o.id = %s
+                SELECT id, status
+                FROM sales.orders
+                WHERE id = %s
                 FOR UPDATE
             """, (order_id,))
             row = cur.fetchone()
-
+            
             if not row:
                 render_error(f"Заказ с ID {order_id} не найден")
                 return
-
-            cur.execute("SELECT username FROM auth.users WHERE id = %s", (row[5],))
-            user_row = cur.fetchone()
-            created_by_username = user_row[0] if user_row else f"User #{row[5]}"
-
-            order = Order(
-                id=row[0],
-                status=row[1],
-                total_amount=row[2],
-                created_at=row[3],
-                warehouse_id=row[4],
-                created_by_username=created_by_username
-            )
-
-            if order.status != 'new':
-                render_error(f"Заказ имеет статус '{order.status}', нельзя взять в обработку")
+            
+            if row[1] != 'new':
+                render_error(f"Заказ уже был взят в обработку другим менеджером")
                 return
-
-            _render_order_card(order)
-
-            if not YesNoValidator.is_yes(
-                    prompt(f"Взять заказ #{order_id} в обработку? (y/n): ", validator=YesNoValidator())
-            ):
-                console.print("[yellow]Операция отменена[/yellow]")
-                return
-
+            
             user_id = get_current_user_id()
             cur.execute("""
                 UPDATE sales.orders 
                 SET status = 'processing', processing_by = %s
-                WHERE id = %s AND status = 'new'
+                WHERE id = %s
             """, (user_id, order_id))
-
+            
             if cur.rowcount == 0:
-                render_error("Заказ уже был взят в обработку другим менеджером")
+                render_error("Не удалось обновить заказ (возможно, уже взят в обработку)")
                 return
-
+            
             console.print(f"[green]Заказ #{order_id} взят в обработку![/green]")
 
 
@@ -404,7 +397,7 @@ def list_orders_all() -> None:
     table.add_column("Сумма", style="cyan", justify="right")
     table.add_column("Создан", style="yellow", min_width=16)
     table.add_column("Обрабатывает", style="white", min_width=15)
-
+    
     with conn.cursor() as cur:
         cur.execute("""
             SELECT o.id, o.status, o.total_amount, o.created_at, o.warehouse_id, u.username
@@ -413,11 +406,9 @@ def list_orders_all() -> None:
             ORDER BY o.created_at DESC
         """)
         rows = cur.fetchall()
-
         if not rows:
             console.print("[yellow]Заказов нет[/yellow]")
             return
-
         for row in rows:
             table.add_row(
                 str(row[0]),
@@ -427,5 +418,4 @@ def list_orders_all() -> None:
                 row[3].strftime("%d.%m.%Y %H:%M"),
                 row[5] or "—"
             )
-
     console.print(table)
