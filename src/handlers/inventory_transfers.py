@@ -9,6 +9,7 @@ from validators import NonEmptyValidator, YesNoValidator
 from commands import command, CATEGORY_INVENTORY
 from auth import ROLE_INVENTORY_MANAGER, get_current_user_id
 
+from psycopg import errors
 
 def _get_warehouse_name(warehouse_id: int) -> str:
     conn = get_conn()
@@ -77,27 +78,41 @@ def _get_warehouse_stock(warehouse_id: int) -> list[tuple[int, str, int]]:
         return cur.fetchall()
 
 
-def _get_or_create_transfer(from_warehouse_id: int, to_warehouse_id: int) -> int:
-    """Создает новую накладную или возвращает существующую planned"""
+def _get_or_create_transfer(from_warehouse_id: int, to_warehouse_id: int, retries: int = 3) -> int:
+    """
+    Создает новую накладную или возвращает существующую planned.
+    Использует REPEATABLE READ с retry при конфликтах.
+    """
     conn = get_conn()
-    with conn.transaction():
-        with conn.cursor() as cur:
-            cur.execute("""
-                SELECT id FROM inventory.transfers
-                WHERE from_warehouse_id = %s AND to_warehouse_id = %s AND status = 'planned'
-                FOR UPDATE
-            """, (from_warehouse_id, to_warehouse_id))
-            result = cur.fetchone()
-            
-            if result:
-                return result[0]
-            
-            cur.execute("""
-                INSERT INTO inventory.transfers (from_warehouse_id, to_warehouse_id, status)
-                VALUES (%s, %s, 'planned')
-                RETURNING id
-            """, (from_warehouse_id, to_warehouse_id))
-            return cur.fetchone()[0]
+    last_error = None
+    
+    for attempt in range(retries):
+        try:
+            with conn.transaction(isolation_level="REPEATABLE READ"):
+                with conn.cursor() as cur:
+                    cur.execute("""
+                        SELECT id FROM inventory.transfers
+                        WHERE from_warehouse_id = %s AND to_warehouse_id = %s AND status = 'planned'
+                    """, (from_warehouse_id, to_warehouse_id))
+                    result = cur.fetchone()
+                    
+                    if result:
+                        return result[0]
+                    
+                    cur.execute("""
+                        INSERT INTO inventory.transfers (from_warehouse_id, to_warehouse_id, status)
+                        VALUES (%s, %s, 'planned')
+                        RETURNING id
+                    """, (from_warehouse_id, to_warehouse_id))
+                    return cur.fetchone()[0]
+                    
+        except errors.SerializationFailure as e:
+            last_error = e
+            if attempt < retries - 1:
+                continue
+            raise
+    
+    raise last_error
 
 
 def _get_user_transfer_items(user_id: int) -> list[tuple]:
@@ -145,6 +160,7 @@ def add_transfer_items() -> None:
     user_id = get_current_user_id()
     
     while True:
+        # Показываем доступные товары (с учетом резервов)
         stock = _get_warehouse_stock(from_warehouse_id)
         if not stock:
             console.print("[yellow]На складе нет доступных товаров[/yellow]")
@@ -165,28 +181,51 @@ def add_transfer_items() -> None:
         product_id = selected
         quantity = int(prompt("Количество: ", validator=NonEmptyValidator()))
         
-        with conn.cursor() as cur:
-            cur.execute("""
-                SELECT s.quantity - COALESCE((
-                    SELECT SUM(r.quantity)
+        # Транзакция с блокировкой
+        with conn.transaction():
+            with conn.cursor() as cur:
+                # Блокируем строку стока
+                cur.execute("""
+                    SELECT quantity 
+                    FROM inventory.stock
+                    WHERE warehouse_id = %s AND product_id = %s
+                    FOR UPDATE
+                """, (from_warehouse_id, product_id))
+                row = cur.fetchone()
+                
+                if not row:
+                    render_error("Товар не найден на складе")
+                    continue
+                
+                stock_quantity = row[0]
+                
+                # Проверяем доступное количество (с учетом резервов)
+                cur.execute("""
+                    SELECT COALESCE(SUM(r.quantity), 0)
                     FROM inventory.reserves r
                     JOIN sales.orders o ON o.id = r.order_id
                     WHERE o.warehouse_id = %s AND r.product_id = %s
-                ), 0) as available
-                FROM inventory.stock s
-                WHERE s.warehouse_id = %s AND s.product_id = %s
-                FOR UPDATE
-            """, (from_warehouse_id, product_id, from_warehouse_id, product_id))
-            row = cur.fetchone()
-            
-            if not row or row[0] < quantity:
-                render_error(f"Недостаточно товара. Доступно: {row[0] if row else 0}")
-                continue
-            
-            cur.execute("""
-                INSERT INTO inventory.transfer_items (transfer_id, product_id, quantity, requested_by)
-                VALUES (%s, %s, %s, %s)
-            """, (transfer_id, product_id, quantity, user_id))
+                """, (from_warehouse_id, product_id))
+                reserved = cur.fetchone()[0]
+                
+                available = stock_quantity - reserved
+                
+                if available < quantity:
+                    render_error(f"Недостаточно товара. Доступно: {available}")
+                    continue
+                
+                # Вычитаем из стока
+                cur.execute("""
+                    UPDATE inventory.stock
+                    SET quantity = quantity - %s
+                    WHERE warehouse_id = %s AND product_id = %s
+                """, (quantity, from_warehouse_id, product_id))
+                
+                # Добавляем позицию в накладную
+                cur.execute("""
+                    INSERT INTO inventory.transfer_items (transfer_id, product_id, quantity, requested_by)
+                    VALUES (%s, %s, %s, %s)
+                """, (transfer_id, product_id, quantity, user_id))
         
         console.print(f"[green]Товар добавлен в накладную #{transfer_id}[/green]")
         
@@ -215,7 +254,7 @@ def remove_transfer_items() -> None:
                     'to': row[1],
                     'items': []
                 }
-        transfers[transfer_id]['items'].append((item_id, product_id, quantity))
+        transfers[transfer_id]['items'].append((item_id, product_id, quantity, reserve_id))
     
     options = []
     for transfer_id, data in transfers.items():
@@ -231,9 +270,10 @@ def remove_transfer_items() -> None:
     
     items_to_remove = transfers[selected_transfer_id]['items']
     options = []
-    for item_id, product_id, quantity in items_to_remove:
+    for item_id, product_id, quantity, reserve_id in items_to_remove:
         product_name = _get_product_name(product_id)
-        options.append((item_id, f"{product_name} (кол-во: {quantity})"))
+        reserve_info = " (в резерве)" if reserve_id else ""
+        options.append((item_id, f"{product_name} (кол-во: {quantity}){reserve_info}"))
     
     selected_item_id = choice(
         message=HTML("<b>Выберите товар для удаления</b>"),
@@ -247,16 +287,59 @@ def remove_transfer_items() -> None:
     
     with conn.transaction():
         with conn.cursor() as cur:
-            cur.execute("SELECT status FROM inventory.transfers WHERE id = %s FOR UPDATE", (selected_transfer_id,))
-            status = cur.fetchone()[0]
+            # 1. Блокируем накладную
+            cur.execute("""
+                SELECT status, from_warehouse_id 
+                FROM inventory.transfers 
+                WHERE id = %s FOR UPDATE
+            """, (selected_transfer_id,))
+            row = cur.fetchone()
+            
+            if not row:
+                render_error("Накладная не найдена")
+                return
+            
+            status = row[0]
+            from_warehouse_id = row[1]
+            
             if status != 'planned':
                 render_error(f"Накладная уже в статусе '{status}', нельзя удалять товары")
                 return
             
+            # 2. Получаем информацию о позиции (с блокировкой)
+            cur.execute("""
+                SELECT product_id, quantity, reserve_id
+                FROM inventory.transfer_items
+                WHERE id = %s
+                FOR UPDATE
+            """, (selected_item_id,))
+            item = cur.fetchone()
+            
+            if not item:
+                render_error("Позиция не найдена")
+                return
+            
+            product_id, quantity, reserve_id = item
+            
+            # 3. Проверяем, не зарезервирован ли товар для заказа
+            if reserve_id:
+                render_error("Нельзя удалить товар, который уже в резерве для заказа")
+                return
+            
+            # 4. Возвращаем товар в сток
+            cur.execute("""
+                UPDATE inventory.stock
+                SET quantity = quantity + %s
+                WHERE warehouse_id = %s AND product_id = %s
+            """, (quantity, from_warehouse_id, product_id))
+            
+            # 5. Удаляем позицию
             cur.execute("DELETE FROM inventory.transfer_items WHERE id = %s", (selected_item_id,))
             
+            # 6. Проверяем, не стала ли накладная пустой
             cur.execute("SELECT COUNT(*) FROM inventory.transfer_items WHERE transfer_id = %s", (selected_transfer_id,))
             count = cur.fetchone()[0]
+            
             if count == 0:
                 cur.execute("DELETE FROM inventory.transfers WHERE id = %s", (selected_transfer_id,))
                 console.print(f"[green]Накладная #{selected_transfer_id} удалена (пустая)[/green]")
