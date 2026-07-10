@@ -85,33 +85,36 @@ def _get_or_create_transfer(from_warehouse_id: int, to_warehouse_id: int, retrie
     """
     conn = get_conn()
     last_error = None
-    
+
     for attempt in range(retries):
         try:
-            with conn.transaction(isolation_level="REPEATABLE READ"):
+            with conn.transaction():
                 with conn.cursor() as cur:
+                    # Устанавливаем уровень изоляции через SET
+                    cur.execute("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ")
+
                     cur.execute("""
                         SELECT id FROM inventory.transfers
                         WHERE from_warehouse_id = %s AND to_warehouse_id = %s AND status = 'planned'
                     """, (from_warehouse_id, to_warehouse_id))
                     result = cur.fetchone()
-                    
+
                     if result:
                         return result[0]
-                    
+
                     cur.execute("""
                         INSERT INTO inventory.transfers (from_warehouse_id, to_warehouse_id, status)
                         VALUES (%s, %s, 'planned')
                         RETURNING id
                     """, (from_warehouse_id, to_warehouse_id))
                     return cur.fetchone()[0]
-                    
+
         except errors.SerializationFailure as e:
             last_error = e
             if attempt < retries - 1:
                 continue
             raise
-    
+
     raise last_error
 
 
@@ -185,7 +188,7 @@ def add_transfer_items() -> None:
                 # 1. Блокируем накладную
                 cur.execute("""
                     SELECT status FROM inventory.transfers
-                    WHERE id = %s FOR UPDATE
+                    WHERE id = %s FOR SHARE
                 """, (transfer_id,))
                 row = cur.fetchone()
                 
